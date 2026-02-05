@@ -1,0 +1,225 @@
+# =============================================================================
+# App A: The Standard (Go + Postgres) - Kubernetes Manifests
+# =============================================================================
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-a
+  labels:
+    app: app-a
+---
+# =============================================================================
+# Secrets
+# =============================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-a-secret
+  namespace: app-a
+type: Opaque
+# NOTE: In production, use ExternalSecrets or Sealed Secrets
+stringData:
+  DB_HOST: "postgres.infra.svc.cluster.local"
+  DB_PORT: "5432"
+  DB_USER: "postgres"
+  DB_PASSWORD: "postgres123"
+  DB_NAME: "app_a"
+---
+# =============================================================================
+# Backend Deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-a-backend
+  namespace: app-a
+  labels:
+    app: app-a-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: app-a-backend
+  template:
+    metadata:
+      labels:
+        app: app-a-backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: backend
+          # Update with your actual image registry
+          image: your-registry/app-a-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+          envFrom:
+            - secretRef:
+                name: app-a-secret
+          env:
+            - name: PORT
+              value: "8080"
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+# =============================================================================
+# Backend Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-a-backend
+  namespace: app-a
+  labels:
+    app: app-a-backend
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+  selector:
+    app: app-a-backend
+---
+# =============================================================================
+# Frontend Deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-a-frontend
+  namespace: app-a
+  labels:
+    app: app-a-frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: app-a-frontend
+  template:
+    metadata:
+      labels:
+        app: app-a-frontend
+    spec:
+      containers:
+        - name: frontend
+          # Update with your actual image registry
+          image: your-registry/app-a-frontend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+              name: http
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "10m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 2
+            periodSeconds: 5
+---
+# =============================================================================
+# Frontend Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-a-frontend
+  namespace: app-a
+  labels:
+    app: app-a-frontend
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 80
+      name: http
+  selector:
+    app: app-a-frontend
+---
+# =============================================================================
+# Ingress
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-a-ingress
+  namespace: app-a
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: app-a.local  # Update with your domain
+      http:
+        paths:
+          - path: /api(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: app-a-backend
+                port:
+                  number: 8080
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: app-a-frontend
+                port:
+                  number: 80
+---
+# =============================================================================
+# ServiceMonitor for Prometheus
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: app-a-backend
+  namespace: app-a
+  labels:
+    app: app-a-backend
+spec:
+  selector:
+    matchLabels:
+      app: app-a-backend
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+  namespaceSelector:
+    matchNames:
+      - app-a

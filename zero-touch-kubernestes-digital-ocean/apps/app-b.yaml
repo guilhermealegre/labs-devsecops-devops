@@ -1,0 +1,26 @@
+# =============================================================================
+# App B: The Async Pipeline (Python + RabbitMQ + MongoDB + Go Worker)
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: app-b
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    # IMPORTANT: Update to your repository URL
+    repoURL: https://github.com/YOUR_USERNAME/devops-lab.git
+    targetRevision: main
+    path: manifests/app-b
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: app-b
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

@@ -1,0 +1,16 @@
+# =============================================================================
+# Example terraform.tfvars
+# =============================================================================
+# Copy this file to terraform.tfvars and customize values
+# DO NOT commit terraform.tfvars to version control if it contains secrets
+# =============================================================================
+
+region             = "nyc1"
+cluster_name       = "devops-lab"
+kubernetes_version = "1.29.1-do.0"
+node_size          = "s-2vcpu-4gb"
+node_count         = 3
+
+# IMPORTANT: Update this to your actual Git repository URL
+git_repo_url = "https://github.com/YOUR_USERNAME/devops-lab.git"
+git_branch   = "main"

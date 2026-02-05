@@ -1,0 +1,324 @@
+# =============================================================================
+# App B: The Async Pipeline - Kubernetes Manifests
+# =============================================================================
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-b
+  labels:
+    app: app-b
+---
+# =============================================================================
+# Secrets
+# =============================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-b-secret
+  namespace: app-b
+type: Opaque
+# NOTE: In production, use ExternalSecrets or Sealed Secrets
+stringData:
+  RABBITMQ_HOST: "rabbitmq.infra.svc.cluster.local"
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_USER: "guest"
+  RABBITMQ_PASSWORD: "guest"
+  RABBITMQ_QUEUE: "jobs"
+  RABBITMQ_URL: "amqp://guest:guest@rabbitmq.infra.svc.cluster.local:5672/"
+  MONGODB_URI: "mongodb://mongodb.infra.svc.cluster.local:27017"
+  MONGODB_DATABASE: "app_b"
+---
+# =============================================================================
+# API Deployment (Python FastAPI)
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-b-api
+  namespace: app-b
+  labels:
+    app: app-b-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: app-b-api
+  template:
+    metadata:
+      labels:
+        app: app-b-api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: api
+          # Update with your actual image registry
+          image: your-registry/app-b-api:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+          envFrom:
+            - secretRef:
+                name: app-b-secret
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "512Mi"
+              cpu: "300m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+# =============================================================================
+# API Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-b-api
+  namespace: app-b
+  labels:
+    app: app-b-api
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+  selector:
+    app: app-b-api
+---
+# =============================================================================
+# Worker Deployment (Go)
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-b-worker
+  namespace: app-b
+  labels:
+    app: app-b-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: app-b-worker
+  template:
+    metadata:
+      labels:
+        app: app-b-worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: worker
+          # Update with your actual image registry
+          image: your-registry/app-b-worker:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: metrics
+          envFrom:
+            - secretRef:
+                name: app-b-secret
+          env:
+            - name: METRICS_PORT
+              value: "8080"
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+# =============================================================================
+# Worker Service (for metrics scraping)
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-b-worker
+  namespace: app-b
+  labels:
+    app: app-b-worker
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: metrics
+  selector:
+    app: app-b-worker
+---
+# =============================================================================
+# Frontend Deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-b-frontend
+  namespace: app-b
+  labels:
+    app: app-b-frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: app-b-frontend
+  template:
+    metadata:
+      labels:
+        app: app-b-frontend
+    spec:
+      containers:
+        - name: frontend
+          # Update with your actual image registry
+          image: your-registry/app-b-frontend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+              name: http
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "10m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 2
+            periodSeconds: 5
+---
+# =============================================================================
+# Frontend Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-b-frontend
+  namespace: app-b
+  labels:
+    app: app-b-frontend
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 80
+      name: http
+  selector:
+    app: app-b-frontend
+---
+# =============================================================================
+# Ingress
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-b-ingress
+  namespace: app-b
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: app-b.local  # Update with your domain
+      http:
+        paths:
+          - path: /api(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: app-b-api
+                port:
+                  number: 8080
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: app-b-frontend
+                port:
+                  number: 80
+---
+# =============================================================================
+# ServiceMonitor for API
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: app-b-api
+  namespace: app-b
+  labels:
+    app: app-b-api
+spec:
+  selector:
+    matchLabels:
+      app: app-b-api
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+  namespaceSelector:
+    matchNames:
+      - app-b
+---
+# =============================================================================
+# ServiceMonitor for Worker
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: app-b-worker
+  namespace: app-b
+  labels:
+    app: app-b-worker
+spec:
+  selector:
+    matchLabels:
+      app: app-b-worker
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+  namespaceSelector:
+    matchNames:
+      - app-b

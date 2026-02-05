@@ -1,0 +1,109 @@
+# =============================================================================
+# PostgreSQL StatefulSet
+# =============================================================================
+# Shared database for App A and App C
+# In production, consider using DigitalOcean Managed Databases
+# =============================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  namespace: infra
+type: Opaque
+# NOTE: In production, use ExternalSecrets or Sealed Secrets
+stringData:
+  POSTGRES_USER: "postgres"
+  POSTGRES_PASSWORD: "postgres123"  # Change in production!
+  POSTGRES_DB: "postgres"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: infra
+data:
+  init.sql: |
+    -- Create databases for applications
+    CREATE DATABASE app_a;
+    CREATE DATABASE app_c;
+    
+    -- Grant permissions
+    GRANT ALL PRIVILEGES ON DATABASE app_a TO postgres;
+    GRANT ALL PRIVILEGES ON DATABASE app_c TO postgres;
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: infra
+  labels:
+    app: postgres
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+      name: postgres
+  selector:
+    app: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: infra
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+              name: postgres
+          envFrom:
+            - secretRef:
+                name: postgres-secret
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: init-scripts
+          configMap:
+            name: postgres-init
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: do-block-storage
+        resources:
+          requests:
+            storage: 10Gi

@@ -1,0 +1,227 @@
+# =============================================================================
+# App C: The Performance (Rust + Postgres) - Kubernetes Manifests
+# =============================================================================
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-c
+  labels:
+    app: app-c
+---
+# =============================================================================
+# Secrets
+# =============================================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-c-secret
+  namespace: app-c
+type: Opaque
+# NOTE: In production, use ExternalSecrets or Sealed Secrets
+stringData:
+  DB_HOST: "postgres.infra.svc.cluster.local"
+  DB_PORT: "5432"
+  DB_USER: "postgres"
+  DB_PASSWORD: "postgres123"
+  DB_NAME: "app_c"
+---
+# =============================================================================
+# Backend Deployment (Rust)
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-c-backend
+  namespace: app-c
+  labels:
+    app: app-c-backend
+spec:
+  replicas: 3  # Higher replicas for performance testing
+  selector:
+    matchLabels:
+      app: app-c-backend
+  template:
+    metadata:
+      labels:
+        app: app-c-backend
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: backend
+          # Update with your actual image registry
+          image: your-registry/app-c-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+          envFrom:
+            - secretRef:
+                name: app-c-secret
+          env:
+            - name: PORT
+              value: "8080"
+            - name: RUST_LOG
+              value: "info"
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+---
+# =============================================================================
+# Backend Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-c-backend
+  namespace: app-c
+  labels:
+    app: app-c-backend
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
+  selector:
+    app: app-c-backend
+---
+# =============================================================================
+# Frontend Deployment
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-c-frontend
+  namespace: app-c
+  labels:
+    app: app-c-frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: app-c-frontend
+  template:
+    metadata:
+      labels:
+        app: app-c-frontend
+    spec:
+      containers:
+        - name: frontend
+          # Update with your actual image registry
+          image: your-registry/app-c-frontend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
+              name: http
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "10m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 2
+            periodSeconds: 5
+---
+# =============================================================================
+# Frontend Service
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-c-frontend
+  namespace: app-c
+  labels:
+    app: app-c-frontend
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 80
+      name: http
+  selector:
+    app: app-c-frontend
+---
+# =============================================================================
+# Ingress
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-c-ingress
+  namespace: app-c
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: app-c.local  # Update with your domain
+      http:
+        paths:
+          - path: /api(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: app-c-backend
+                port:
+                  number: 8080
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: app-c-frontend
+                port:
+                  number: 80
+---
+# =============================================================================
+# ServiceMonitor for Prometheus
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: app-c-backend
+  namespace: app-c
+  labels:
+    app: app-c-backend
+spec:
+  selector:
+    matchLabels:
+      app: app-c-backend
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s  # More frequent for performance monitoring
+  namespaceSelector:
+    matchNames:
+      - app-c

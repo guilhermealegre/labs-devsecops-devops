@@ -1,0 +1,26 @@
+# =============================================================================
+# App A: The Standard (Go + Postgres)
+# =============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: app-a
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    # IMPORTANT: Update to your repository URL
+    repoURL: https://github.com/YOUR_USERNAME/devops-lab.git
+    targetRevision: main
+    path: manifests/app-a
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: app-a
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
