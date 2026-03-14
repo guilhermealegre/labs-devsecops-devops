@@ -5,7 +5,8 @@
 # DO NOT commit terraform.tfvars to version control if it contains secrets
 # =============================================================================
 
-region             = "nyc1"
+# fra1 (Frankfurt) is the closest DigitalOcean region to Portugal
+region             = "fra1"
 cluster_name       = "devops-lab"
 kubernetes_version = "1.29.1-do.0"
 node_size          = "s-2vcpu-4gb"
@@ -14,3 +15,11 @@ node_count         = 3
 # IMPORTANT: Update this to your actual Git repository URL
 git_repo_url = "https://github.com/YOUR_USERNAME/devops-lab.git"
 git_branch   = "main"
+
+# Container Registry
+registry_name = "devops-lab-registry"
+registry_tier = "basic" # starter (free, 1 repo) | basic | professional
+
+# Managed PostgreSQL
+db_size       = "db-s-1vcpu-1gb" # smallest for lab; use db-s-2vcpu-4gb for production
+db_node_count = 1                 # use 2+ for HA in production

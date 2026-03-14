@@ -1,0 +1,99 @@
+name: Zero-Touch Kubernetes - DigitalOcean
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "OpenTofu action to run"
+        required: true
+        default: "apply"
+        type: choice
+        options:
+          - apply
+          - destroy
+      region:
+        description: "DigitalOcean region"
+        required: false
+        default: "nyc1"
+      cluster_name:
+        description: "Kubernetes cluster name"
+        required: false
+        default: "devops-lab"
+      node_count:
+        description: "Number of worker nodes"
+        required: false
+        default: "3"
+      node_size:
+        description: "Worker node size"
+        required: false
+        default: "s-2vcpu-4gb"
+
+env:
+  TF_VERSION: "1.6.0"
+  WORKING_DIR: zero-touch-kubernestes-digital-ocean/iac
+
+jobs:
+  tofu:
+    name: "OpenTofu ${{ github.event.inputs.action }}"
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.action == 'destroy' && 'destroy' || 'production' }}
+
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIR }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ env.TF_VERSION }}
+
+      - name: Create tfvars
+        run: |
+          cat > terraform.tfvars <<EOF
+          region             = "${{ github.event.inputs.region }}"
+          cluster_name       = "${{ github.event.inputs.cluster_name }}"
+          kubernetes_version = "1.29.1-do.0"
+          node_size          = "${{ github.event.inputs.node_size }}"
+          node_count         = ${{ github.event.inputs.node_count }}
+          git_repo_url       = "https://github.com/${{ github.repository }}.git"
+          git_branch         = "${{ github.ref_name }}"
+          EOF
+
+      - name: OpenTofu Init
+        run: tofu init
+        env:
+          DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
+
+      - name: OpenTofu Plan
+        if: github.event.inputs.action == 'apply'
+        run: tofu plan -out=tfplan
+        env:
+          DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
+
+      - name: OpenTofu Apply
+        if: github.event.inputs.action == 'apply'
+        run: tofu apply -auto-approve tfplan
+        env:
+          DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
+
+      - name: OpenTofu Destroy
+        if: github.event.inputs.action == 'destroy'
+        run: tofu destroy -auto-approve
+        env:
+          DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
+
+      - name: Show Outputs
+        if: github.event.inputs.action == 'apply'
+        run: |
+          echo "### Cluster Outputs" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tofu output argocd_server_url >> $GITHUB_STEP_SUMMARY
+          tofu output argocd_initial_password >> $GITHUB_STEP_SUMMARY
+          tofu output grafana_password >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+        env:
+          DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}

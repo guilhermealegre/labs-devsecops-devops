@@ -43,3 +43,35 @@ variable "git_branch" {
   type        = string
   default     = "main"
 }
+
+# =============================================================================
+# Container Registry
+# =============================================================================
+
+variable "registry_name" {
+  description = "Name of the DigitalOcean Container Registry"
+  type        = string
+  default     = "devops-lab-registry"
+}
+
+variable "registry_tier" {
+  description = "Container Registry subscription tier (starter, basic, professional)"
+  type        = string
+  default     = "basic"
+}
+
+# =============================================================================
+# Managed PostgreSQL
+# =============================================================================
+
+variable "db_size" {
+  description = "Size slug for the managed PostgreSQL cluster"
+  type        = string
+  default     = "db-s-1vcpu-1gb"
+}
+
+variable "db_node_count" {
+  description = "Number of nodes in the managed PostgreSQL cluster"
+  type        = number
+  default     = 1
+}

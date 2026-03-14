@@ -2,7 +2,8 @@
 # Zero-Touch Kubernetes Platform on DigitalOcean
 # =============================================================================
 # This is the ONLY manual command needed. It provisions the DOKS cluster,
-# installs ArgoCD, and bootstraps the GitOps pipeline.
+# Container Registry, Managed PostgreSQL, installs ArgoCD, and bootstraps
+# the GitOps pipeline.
 #
 # Usage:
 #   export DIGITALOCEAN_TOKEN="your-token-here"
@@ -60,6 +61,59 @@ provider "kubectl" {
   token                  = digitalocean_kubernetes_cluster.primary.kube_config[0].token
   cluster_ca_certificate = base64decode(digitalocean_kubernetes_cluster.primary.kube_config[0].cluster_ca_certificate)
   load_config_file       = false
+}
+
+# =============================================================================
+# Container Registry
+# =============================================================================
+# DO Container Registry is global (not region-specific), but we tag it here.
+# Closest region to Portugal is fra1 (Frankfurt) or ams3 (Amsterdam).
+
+resource "digitalocean_container_registry" "main" {
+  name                   = var.registry_name
+  subscription_tier_slug = var.registry_tier
+  region                 = "fra1" # Closest available to Portugal
+}
+
+# Allow the DOKS cluster to pull from the registry
+resource "digitalocean_container_registry_docker_credentials" "cluster" {
+  registry_name = digitalocean_container_registry.main.name
+  write         = false
+}
+
+# =============================================================================
+# Managed PostgreSQL
+# =============================================================================
+
+resource "digitalocean_database_cluster" "postgres" {
+  name       = "${var.cluster_name}-postgres"
+  engine     = "pg"
+  version    = "16"
+  size       = var.db_size
+  region     = var.region
+  node_count = var.db_node_count
+
+  tags = ["devops-lab", "zero-touch"]
+}
+
+resource "digitalocean_database_db" "app_a" {
+  cluster_id = digitalocean_database_cluster.postgres.id
+  name       = "app_a"
+}
+
+resource "digitalocean_database_db" "app_c" {
+  cluster_id = digitalocean_database_cluster.postgres.id
+  name       = "app_c"
+}
+
+# Allow the DOKS cluster to connect to the managed DB
+resource "digitalocean_database_firewall" "postgres" {
+  cluster_id = digitalocean_database_cluster.postgres.id
+
+  rule {
+    type  = "k8s"
+    value = digitalocean_kubernetes_cluster.primary.id
+  }
 }
 
 # =============================================================================
@@ -133,7 +187,7 @@ resource "helm_release" "argocd" {
 }
 
 # =============================================================================
-# Application Namespaces
+# Application Namespaces + Registry Pull Secret
 # =============================================================================
 
 resource "kubernetes_namespace" "apps" {
@@ -147,6 +201,45 @@ resource "kubernetes_namespace" "apps" {
   }
 
   depends_on = [digitalocean_kubernetes_cluster.primary]
+}
+
+# Inject DO registry credentials into each app namespace so pods can pull images
+resource "kubernetes_secret" "registry_credentials" {
+  for_each = toset(["app-a", "app-b", "app-c"])
+
+  metadata {
+    name      = "do-registry"
+    namespace = each.key
+  }
+
+  type = "kubernetes.io/dockerconfigjson"
+
+  data = {
+    ".dockerconfigjson" = digitalocean_container_registry_docker_credentials.cluster.docker_credentials
+  }
+
+  depends_on = [kubernetes_namespace.apps]
+}
+
+# Store managed PostgreSQL connection info as a secret in the infra namespace
+resource "kubernetes_secret" "postgres_credentials" {
+  metadata {
+    name      = "managed-postgres"
+    namespace = "infra"
+  }
+
+  type = "Opaque"
+
+  data = {
+    host     = digitalocean_database_cluster.postgres.private_host
+    port     = tostring(digitalocean_database_cluster.postgres.port)
+    user     = digitalocean_database_cluster.postgres.user
+    password = digitalocean_database_cluster.postgres.password
+    uri      = digitalocean_database_cluster.postgres.private_uri
+    ca_cert  = digitalocean_database_cluster.postgres.private_uri != "" ? "" : ""
+  }
+
+  depends_on = [kubernetes_namespace.apps]
 }
 
 # =============================================================================
@@ -211,4 +304,21 @@ output "argocd_initial_password" {
 output "grafana_password" {
   description = "Command to get Grafana admin password"
   value       = "Run: kubectl -n monitoring get secret kube-prometheus-stack-grafana -o jsonpath='{.data.admin-password}' | base64 -d"
+}
+
+output "registry_endpoint" {
+  description = "DO Container Registry endpoint"
+  value       = "registry.digitalocean.com/${digitalocean_container_registry.main.name}"
+}
+
+output "postgres_host" {
+  description = "Managed PostgreSQL private host (accessible from DOKS)"
+  value       = digitalocean_database_cluster.postgres.private_host
+  sensitive   = true
+}
+
+output "postgres_connection_uri" {
+  description = "Managed PostgreSQL private connection URI"
+  value       = digitalocean_database_cluster.postgres.private_uri
+  sensitive   = true
 }
