@@ -18,13 +18,14 @@ metadata:
   name: app-c-secret
   namespace: app-c
 type: Opaque
-# NOTE: In production, use ExternalSecrets or Sealed Secrets
+# Populated by Terraform from the managed PostgreSQL cluster outputs
 stringData:
-  DB_HOST: "postgres.infra.svc.cluster.local"
-  DB_PORT: "5432"
-  DB_USER: "postgres"
-  DB_PASSWORD: "postgres123"
+  DB_HOST: "managed-postgres-host"     # overridden by terraform-managed secret
+  DB_PORT: "25060"                      # DO managed DB default TLS port
+  DB_USER: "doadmin"
+  DB_PASSWORD: "change-me"
   DB_NAME: "app_c"
+  DB_SSLMODE: "require"
 ---
 # =============================================================================
 # Backend Deployment (Rust)
@@ -50,10 +51,11 @@ spec:
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
     spec:
+      imagePullSecrets:
+        - name: do-registry
       containers:
         - name: backend
-          # Update with your actual image registry
-          image: your-registry/app-c-backend:latest
+          image: registry.digitalocean.com/devops-lab-registry/app-c-backend:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
@@ -125,10 +127,11 @@ spec:
       labels:
         app: app-c-frontend
     spec:
+      imagePullSecrets:
+        - name: do-registry
       containers:
         - name: frontend
-          # Update with your actual image registry
-          image: your-registry/app-c-frontend:latest
+          image: registry.digitalocean.com/devops-lab-registry/app-c-frontend:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 80

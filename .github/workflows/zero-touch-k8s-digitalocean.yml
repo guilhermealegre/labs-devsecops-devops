@@ -61,6 +61,10 @@ jobs:
           node_count         = ${{ github.event.inputs.node_count }}
           git_repo_url       = "https://github.com/${{ github.repository }}.git"
           git_branch         = "${{ github.ref_name }}"
+          registry_name      = "${{ vars.DO_REGISTRY_NAME }}"
+          registry_tier      = "basic"
+          db_size            = "db-s-1vcpu-1gb"
+          db_node_count      = 1
           EOF
 
       - name: OpenTofu Init
@@ -94,6 +98,7 @@ jobs:
           tofu output argocd_server_url >> $GITHUB_STEP_SUMMARY
           tofu output argocd_initial_password >> $GITHUB_STEP_SUMMARY
           tofu output grafana_password >> $GITHUB_STEP_SUMMARY
+          tofu output registry_endpoint >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
         env:
           DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}

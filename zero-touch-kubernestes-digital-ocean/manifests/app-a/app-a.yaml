@@ -130,7 +130,6 @@ spec:
       containers:
         - name: frontend
           image: registry.digitalocean.com/devops-lab-registry/app-a-frontend:latest
-          image: your-registry/app-a-frontend:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 80

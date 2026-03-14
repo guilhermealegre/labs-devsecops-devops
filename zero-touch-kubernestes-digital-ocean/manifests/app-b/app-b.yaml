@@ -53,10 +53,11 @@ spec:
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
     spec:
+      imagePullSecrets:
+        - name: do-registry
       containers:
         - name: api
-          # Update with your actual image registry
-          image: your-registry/app-b-api:latest
+          image: registry.digitalocean.com/devops-lab-registry/app-b-api:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
@@ -127,10 +128,11 @@ spec:
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
     spec:
+      imagePullSecrets:
+        - name: do-registry
       containers:
         - name: worker
-          # Update with your actual image registry
-          image: your-registry/app-b-worker:latest
+          image: registry.digitalocean.com/devops-lab-registry/app-b-worker:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8080
@@ -200,10 +202,11 @@ spec:
       labels:
         app: app-b-frontend
     spec:
+      imagePullSecrets:
+        - name: do-registry
       containers:
         - name: frontend
-          # Update with your actual image registry
-          image: your-registry/app-b-frontend:latest
+          image: registry.digitalocean.com/devops-lab-registry/app-b-frontend:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 80
