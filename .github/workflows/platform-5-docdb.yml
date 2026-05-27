@@ -1,0 +1,117 @@
+name: "[platform] 5 — DocumentDB (managed MongoDB for app-b)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Action to perform"
+        required: true
+        type: choice
+        options: [apply, destroy]
+      region:
+        description: "AWS region"
+        required: true
+        default: eu-west-1
+      cluster_name:
+        description: "EKS cluster name"
+        required: true
+        default: devops-lab
+      state_bucket:
+        description: "S3 bucket for Terraform state"
+        required: true
+      docdb_password:
+        description: "DocumentDB master password"
+        required: true
+      docdb_instance_class:
+        description: "DocumentDB instance class"
+        required: true
+        default: db.t3.medium
+
+env:
+  TF_VERSION: "1.6.0"
+  WORKING_DIR: platform/iac/docdb
+
+permissions:
+  id-token: write
+  contents: read
+  security-events: write
+
+jobs:
+  tofu:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.action == 'destroy' && 'destroy' || 'production' }}
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIR }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ github.event.inputs.region }}
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ env.TF_VERSION }}
+
+      - name: IaC Security — Checkov
+        run: |
+          pip install checkov -q
+          checkov -d . --framework terraform --output cli --output sarif --output-file-path console,checkov-results.sarif || true
+
+      - name: Upload Checkov SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: ${{ env.WORKING_DIR }}/checkov-results.sarif
+          category: checkov-docdb
+
+      - name: IaC Security — Trivy IaC scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: config
+          scan-ref: ${{ env.WORKING_DIR }}
+          format: sarif
+          output: trivy-config.sarif
+          exit-code: "0"
+
+      - name: Upload Trivy IaC SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-config.sarif
+          category: trivy-iac-docdb
+
+      - name: OpenTofu Init
+        run: |
+          tofu init \
+            -backend-config="bucket=${{ github.event.inputs.state_bucket }}" \
+            -backend-config="key=platform/docdb/terraform.tfstate" \
+            -backend-config="region=${{ github.event.inputs.region }}"
+
+      - name: Create terraform.tfvars
+        run: |
+          cat > terraform.tfvars <<EOF
+          region                = "${{ github.event.inputs.region }}"
+          cluster_name          = "${{ github.event.inputs.cluster_name }}"
+          state_bucket          = "${{ github.event.inputs.state_bucket }}"
+          state_key_prefix      = "platform"
+          docdb_password        = "${{ github.event.inputs.docdb_password }}"
+          docdb_instance_class  = "${{ github.event.inputs.docdb_instance_class }}"
+          EOF
+
+      - name: OpenTofu Plan
+        if: github.event.inputs.action == 'apply'
+        run: tofu plan -out=tfplan
+
+      - name: OpenTofu Apply
+        if: github.event.inputs.action == 'apply'
+        run: tofu apply -auto-approve tfplan
+
+      - name: OpenTofu Destroy
+        if: github.event.inputs.action == 'destroy'
+        run: tofu destroy -auto-approve

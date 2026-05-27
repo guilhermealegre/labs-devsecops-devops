@@ -1,0 +1,61 @@
+namespace: app-a
+
+registry: "YOUR_ACCOUNT_ID.dkr.ecr.eu-west-1.amazonaws.com/devops-lab"
+imageTag: latest
+
+imagePullSecrets: []
+
+userService:
+  image: app-a-user-service
+  replicas: 2
+  port: 8080
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+
+productService:
+  image: app-a-product-service
+  replicas: 2
+  port: 8081
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+
+orderService:
+  image: app-a-order-service
+  replicas: 2
+  port: 8082
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+
+frontend:
+  image: app-a-frontend
+  replicas: 2
+  port: 80
+  resources:
+    requests:
+      memory: "32Mi"
+      cpu: "10m"
+    limits:
+      memory: "128Mi"
+      cpu: "100m"
+
+ingress:
+  host: app-a.local
+  className: nginx
+
+db:
+  secretName: app-a-db-secret
